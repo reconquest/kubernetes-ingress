@@ -89,13 +89,25 @@ func main() {
 
 	local := *proxyURL != ""
 
-	nginxConfTemplatePath := "nginx.tmpl"
-	nginxIngressTemplatePath := "nginx.ingress.tmpl"
+	var (
+		nginxConfTemplatePath     = "nginx.tmpl"
+		nginxMapsConfTemplatePath = "nginx.maps.tmpl"
+		nginxIngressTemplatePath  = "nginx.ingress.tmpl"
+	)
+
 	if *nginxPlus {
 		nginxConfTemplatePath = "nginx-plus.tmpl"
 		nginxIngressTemplatePath = "nginx-plus.ingress.tmpl"
 	}
-	ngxc, _ := nginx.NewNginxController("/etc/nginx/", local, *healthStatus, nginxConfTemplatePath, nginxIngressTemplatePath)
+
+	ngxc, _ := nginx.NewNginxController(
+		"/etc/nginx/",
+		local,
+		*healthStatus,
+		nginxConfTemplatePath,
+		nginxMapsConfTemplatePath,
+		nginxIngressTemplatePath,
+	)
 
 	if *defaultServerSecret != "" {
 		ns, name, err := controller.ParseNamespaceName(*defaultServerSecret)

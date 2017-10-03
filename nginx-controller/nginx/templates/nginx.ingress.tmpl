@@ -6,8 +6,21 @@ upstream {{$upstream.Name}} {
 	{{if $.Keepalive}}keepalive {{$.Keepalive}};{{end}}
 }{{end}}
 
-{{range $server := .Servers}}
+{{range $map := .Maps}}
+map {{$map.Source}} {{$map.Variable}} {
+{{- range $endpoint, $value := $map.Values}}
+	{{$endpoint}} {{$value}};
+{{- end}}
+}
+{{end}}
+
+{{- $cfg := .}}
+
+{{- range $server := .Servers}}
 server {
+	set "$k8s_namespace" "{{$cfg.Namespace}}";
+	set "$k8s_ingress" "{{$cfg.IngressName}}";
+
 	{{range $port := $server.Ports}}
 	listen {{$port}}{{if $server.ProxyProtocol}} proxy_protocol{{end}};
 	{{- end}}

@@ -867,13 +867,17 @@ func (lbc *LoadBalancerController) createIngress(ing *extensions.Ingress) (*ngin
 	}
 
 	ingEx.Endpoints = make(map[string][]string)
+	ingEx.EndpointsInfo = make(map[string][]nginx.EndpointInfo)
 	if ing.Spec.Backend != nil {
-		endps, err := lbc.getEndpointsForIngressBackend(ing.Spec.Backend, ing.Namespace)
+		key := ing.Spec.Backend.ServiceName + ing.Spec.Backend.ServicePort.String()
+
+		endps, info, err := lbc.getEndpointsForIngressBackend(ing.Spec.Backend, ing.Namespace)
 		if err != nil {
 			glog.Warningf("Error retrieving endpoints for the service %v: %v", ing.Spec.Backend.ServiceName, err)
-			ingEx.Endpoints[ing.Spec.Backend.ServiceName+ing.Spec.Backend.ServicePort.String()] = []string{}
+			ingEx.Endpoints[key] = []string{}
 		} else {
-			ingEx.Endpoints[ing.Spec.Backend.ServiceName+ing.Spec.Backend.ServicePort.String()] = endps
+			ingEx.Endpoints[key] = endps
+			ingEx.EndpointsInfo[key] = info
 		}
 	}
 
@@ -889,12 +893,14 @@ func (lbc *LoadBalancerController) createIngress(ing *extensions.Ingress) (*ngin
 		}
 
 		for _, path := range rule.HTTP.Paths {
-			endps, err := lbc.getEndpointsForIngressBackend(&path.Backend, ing.Namespace)
+			key := path.Backend.ServiceName + path.Backend.ServicePort.String()
+			endps, info, err := lbc.getEndpointsForIngressBackend(&path.Backend, ing.Namespace)
 			if err != nil {
 				glog.Warningf("Error retrieving endpoints for the service %v: %v", path.Backend.ServiceName, err)
-				ingEx.Endpoints[path.Backend.ServiceName+path.Backend.ServicePort.String()] = []string{}
+				ingEx.Endpoints[key] = []string{}
 			} else {
-				ingEx.Endpoints[path.Backend.ServiceName+path.Backend.ServicePort.String()] = endps
+				ingEx.Endpoints[key] = endps
+				ingEx.EndpointsInfo[key] = info
 			}
 		}
 
@@ -908,25 +914,35 @@ func (lbc *LoadBalancerController) createIngress(ing *extensions.Ingress) (*ngin
 	return ingEx, nil
 }
 
-func (lbc *LoadBalancerController) getEndpointsForIngressBackend(backend *extensions.IngressBackend, namespace string) ([]string, error) {
+func (lbc *LoadBalancerController) getEndpointsForIngressBackend(
+	backend *extensions.IngressBackend,
+	namespace string,
+) ([]string, []nginx.EndpointInfo, error) {
 	svc, err := lbc.getServiceForIngressBackend(backend, namespace)
 	if err != nil {
 		glog.V(3).Infof("Error getting service %v: %v", backend.ServiceName, err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	endps, err := lbc.endpLister.GetServiceEndpoints(svc)
 	if err != nil {
 		glog.V(3).Infof("Error getting endpoints for service %s from the cache: %v", svc.Name, err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	result, err := lbc.getEndpointsForPort(endps, backend.ServicePort, svc)
 	if err != nil {
 		glog.V(3).Infof("Error getting endpoints for service %s port %v: %v", svc.Name, backend.ServicePort, err)
-		return nil, err
+		return nil, nil, err
 	}
-	return result, nil
+
+	info, err := lbc.getEndpointsInfo(svc)
+	if err != nil {
+		glog.V(3).Infof("Error getting endpoints info for service %s port %v: %v", svc.Name, backend.ServicePort, err)
+		return nil, nil, err
+	}
+
+	return result, info, nil
 }
 
 func (lbc *LoadBalancerController) getEndpointsForPort(endps api_v1.Endpoints, ingSvcPort intstr.IntOrString, svc *api_v1.Service) ([]string, error) {
@@ -991,6 +1007,45 @@ func (lbc *LoadBalancerController) getTargetPort(svcPort *api_v1.ServicePort, sv
 	}
 
 	return portNum, nil
+}
+
+func (lbc *LoadBalancerController) getEndpointsInfo(
+	svc *api_v1.Service,
+) ([]nginx.EndpointInfo, error) {
+	pods, err := lbc.client.Core().Pods(svc.Namespace).List(
+		meta_v1.ListOptions{
+			LabelSelector: labels.Set(svc.Spec.Selector).String(),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting pod information: %v", err)
+	}
+
+	if len(pods.Items) == 0 {
+		return nil, fmt.Errorf("No pods of service %s", svc.Name)
+	}
+
+	info := []nginx.EndpointInfo{}
+
+	for _, pod := range pods.Items {
+		ip := pod.Status.PodIP
+
+		for _, container := range pod.Spec.Containers {
+			for _, port := range container.Ports {
+				info = append(info, nginx.EndpointInfo{
+					Address: fmt.Sprintf("%s:%d", ip, port.ContainerPort),
+					Info: map[string]interface{}{
+						"namespace":  pod.Namespace,
+						"pod":        pod.Name,
+						"container":  container.Name,
+						"pod_labels": nginx.Labels(pod.Labels),
+					},
+				})
+			}
+		}
+	}
+
+	return info, nil
 }
 
 func (lbc *LoadBalancerController) getServiceForIngressBackend(backend *extensions.IngressBackend, namespace string) (*api_v1.Service, error) {

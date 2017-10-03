@@ -1,0 +1,9 @@
+{{- range $map := .}}
+{{- with $map.Values}}
+map {{$map.Source}} {{$map.Variable}} {
+{{- range $endpoint, $value := $map.Values}}
+	{{$endpoint}} {{$value}};
+{{- end}}
+}
+{{- end}}
+{{end}}

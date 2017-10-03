@@ -20,19 +20,24 @@ const jwkSecretFileMode = 0644
 
 // NginxController Updates NGINX configuration, starts and reloads NGINX
 type NginxController struct {
-	nginxConfdPath          string
-	nginxSecretsPath        string
-	local                   bool
-	healthStatus            bool
-	nginxConfTemplatePath   string
-	nginxIngressTempatePath string
+	nginxConfdPath            string
+	nginxSecretsPath          string
+	local                     bool
+	healthStatus              bool
+	nginxConfTemplatePath     string
+	nginxMapsConfTemplatePath string
+	nginxIngressTempatePath   string
 }
 
 // IngressNginxConfig describes an NGINX configuration
 type IngressNginxConfig struct {
+	Namespace   string
+	IngressName string
+
 	Upstreams []Upstream
 	Servers   []Server
 	Keepalive string
+	Maps      []Map
 }
 
 // Upstream describes an NGINX upstream
@@ -47,6 +52,14 @@ type Upstream struct {
 type UpstreamServer struct {
 	Address string
 	Port    string
+}
+
+// Map represents map directive in NGINX config
+type Map struct {
+	Source   string
+	Target   string
+	Variable string
+	Values   map[string]string
 }
 
 // Server describes an NGINX server
@@ -130,14 +143,22 @@ func NewUpstreamWithDefaultServer(name string) Upstream {
 }
 
 // NewNginxController creates a NGINX controller
-func NewNginxController(nginxConfPath string, local bool, healthStatus bool, nginxConfTemplatePath string, nginxIngressTemplatePath string) (*NginxController, error) {
+func NewNginxController(
+	nginxConfPath string,
+	local bool,
+	healthStatus bool,
+	nginxConfTemplatePath string,
+	nginxMapsConfTemplatePath string,
+	nginxIngressTemplatePath string,
+) (*NginxController, error) {
 	ngxc := NginxController{
-		nginxConfdPath:          path.Join(nginxConfPath, "conf.d"),
-		nginxSecretsPath:        path.Join(nginxConfPath, "secrets"),
-		local:                   local,
-		healthStatus:            healthStatus,
-		nginxConfTemplatePath:   nginxConfTemplatePath,
-		nginxIngressTempatePath: nginxIngressTemplatePath,
+		nginxConfdPath:            path.Join(nginxConfPath, "conf.d"),
+		nginxSecretsPath:          path.Join(nginxConfPath, "secrets"),
+		local:                     local,
+		healthStatus:              healthStatus,
+		nginxConfTemplatePath:     nginxConfTemplatePath,
+		nginxMapsConfTemplatePath: nginxMapsConfTemplatePath,
+		nginxIngressTempatePath:   nginxIngressTemplatePath,
 	}
 
 	cfg := &NginxMainConfig{
@@ -374,4 +395,36 @@ func (nginx *NginxController) UpdateMainConfigFile(cfg *NginxMainConfig) {
 	}
 
 	glog.V(3).Infof("The main NGINX configuration file had been updated")
+}
+
+func (nginx *NginxController) UpdateMapsConfigFile(maps []Map) {
+	tmpl, err := template.New(
+		nginx.nginxMapsConfTemplatePath,
+	).ParseFiles(
+		nginx.nginxMapsConfTemplatePath,
+	)
+	if err != nil {
+		glog.Fatalf("Failed to parse the maps config template file: %v", err)
+	}
+
+	filename := "/etc/nginx/maps.conf"
+	glog.V(3).Infof("Writing NGINX conf to %v", filename)
+
+	if glog.V(3) {
+		tmpl.Execute(os.Stdout, maps)
+	}
+
+	if !nginx.local {
+		w, err := os.Create(filename)
+		if err != nil {
+			glog.Fatalf("Failed to open %v: %v", filename, err)
+		}
+		defer w.Close()
+
+		if err := tmpl.Execute(w, maps); err != nil {
+			glog.Fatalf("Failed to write template %v", err)
+		}
+	}
+
+	glog.V(3).Infof("The NGINX maps configuration file had been updated")
 }

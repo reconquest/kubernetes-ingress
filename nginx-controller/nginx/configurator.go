@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -27,17 +28,19 @@ const JWTKeyAnnotation = "nginx.com/jwt-key"
 
 // Configurator transforms an Ingress resource into NGINX Configuration
 type Configurator struct {
-	nginx    *NginxController
-	config   *Config
-	nginxAPI *plus.NginxAPIController
+	nginx     *NginxController
+	config    *Config
+	nginxAPI  *plus.NginxAPIController
+	ingresses map[string]*IngressEx
 }
 
 // NewConfigurator creates a new Configurator
 func NewConfigurator(nginx *NginxController, config *Config, nginxAPI *plus.NginxAPIController) *Configurator {
 	cnf := Configurator{
-		nginx:    nginx,
-		config:   config,
-		nginxAPI: nginxAPI,
+		nginx:     nginx,
+		config:    config,
+		nginxAPI:  nginxAPI,
+		ingresses: map[string]*IngressEx{},
 	}
 
 	return &cnf
@@ -51,6 +54,7 @@ func (cnf *Configurator) AddOrUpdateDHParam(content string) (string, error) {
 // AddOrUpdateIngress adds or updates NGINX configuration for the Ingress resource
 func (cnf *Configurator) AddOrUpdateIngress(ingEx *IngressEx) error {
 	cnf.addOrUpdateIngress(ingEx)
+	cnf.updateMaps()
 
 	if err := cnf.nginx.Reload(); err != nil {
 		return fmt.Errorf("Error when adding or updating ingress %v/%v: %v", ingEx.Ingress.Namespace, ingEx.Ingress.Name, err)
@@ -63,6 +67,40 @@ func (cnf *Configurator) addOrUpdateIngress(ingEx *IngressEx) {
 	nginxCfg := cnf.generateNginxCfg(ingEx, pems, jwtKeyFileName)
 	name := objectMetaToFileName(&ingEx.Ingress.ObjectMeta)
 	cnf.nginx.AddOrUpdateIngress(name, nginxCfg)
+
+	cnf.ingresses[getFullIngressName(ingEx.Ingress)] = ingEx
+}
+
+func (cnf *Configurator) updateMaps() {
+	maps := []Map{}
+
+	for _, variable := range []string{
+		"namespace",
+		"pod",
+		"container",
+		"pod_labels",
+	} {
+		values := map[string]string{}
+
+		for _, ingress := range cnf.ingresses {
+			values[getFullIngressName(ingress.Ingress)] = getMappedVariableName(
+				ingress.Ingress.Namespace,
+				ingress.Ingress.Name,
+				"k8s_upstream_"+variable,
+			)
+		}
+
+		maps = append(
+			maps,
+			Map{
+				Source:   "$k8s_namespace/$k8s_ingress",
+				Variable: fmt.Sprintf("$k8s_upstream_%s", variable),
+				Values:   values,
+			},
+		)
+	}
+
+	cnf.nginx.UpdateMapsConfigFile(maps)
 }
 
 func (cnf *Configurator) updateSecrets(ingEx *IngressEx) (map[string]string, string) {
@@ -177,6 +215,7 @@ func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]stri
 		}
 
 		server.Locations = locations
+
 		servers = append(servers, server)
 	}
 
@@ -186,10 +225,56 @@ func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]stri
 	}
 
 	return IngressNginxConfig{
-		Upstreams: upstreamMapToSlice(upstreams),
-		Servers:   servers,
-		Keepalive: keepalive,
+		Namespace:   ingEx.Ingress.Namespace,
+		IngressName: ingEx.Ingress.Name,
+		Upstreams:   upstreamMapToSlice(upstreams),
+		Servers:     servers,
+		Keepalive:   keepalive,
+		Maps:        getVariableMaps(ingEx),
 	}
+}
+
+func getVariableMaps(ingEx *IngressEx) []Map {
+	maps := map[string]Map{}
+
+	for key, _ := range ingEx.Endpoints {
+		bucket := ingEx.EndpointsInfo[key]
+
+		for _, variable := range []string{
+			"namespace",
+			"pod",
+			"container",
+			"pod_labels",
+		} {
+			if _, ok := maps[variable]; !ok {
+				maps[variable] = Map{
+					Source: "$upstream_addr",
+					Variable: getMappedVariableName(
+						ingEx.Ingress.Namespace,
+						ingEx.Ingress.Name,
+						"k8s_upstream_"+variable,
+					),
+					Values: map[string]string{},
+				}
+			}
+
+			for _, info := range bucket {
+				address := `~` + regexp.QuoteMeta(info.Address) + `$`
+
+				maps[variable].Values[address] = fmt.Sprintf(
+					"%q",
+					info.Info[variable],
+				)
+			}
+		}
+	}
+
+	result := []Map{}
+	for _, variableMap := range maps {
+		result = append(result, variableMap)
+	}
+
+	return result
 }
 
 func (cnf *Configurator) createConfig(ingEx *IngressEx) Config {
@@ -554,6 +639,19 @@ func upstreamMapToSlice(upstreams map[string]Upstream) []Upstream {
 	return result
 }
 
+func getMappedVariableName(namespace string, ingress string, name string) string {
+	escape := func(value string) string {
+		return regexp.MustCompile(`\W`).ReplaceAllString(value, `_`)
+	}
+
+	return fmt.Sprintf(
+		"$%s_%s_%s",
+		name,
+		escape(namespace),
+		escape(ingress),
+	)
+}
+
 // AddOrUpdateSecret creates or updates a file with the content of the secret
 func (cnf *Configurator) AddOrUpdateSecret(secret *api_v1.Secret) error {
 	cnf.addOrUpdateSecret(secret)
@@ -612,9 +710,13 @@ func GenerateCertAndKeyFileContent(secret *api_v1.Secret) []byte {
 func (cnf *Configurator) DeleteSecret(key string, ings []extensions.Ingress) error {
 	for _, ing := range ings {
 		cnf.nginx.DeleteIngress(objectMetaToFileName(&ing.ObjectMeta))
+
+		delete(cnf.ingresses, getFullIngressName(&ing))
 	}
 
 	cnf.nginx.DeleteSecretFile(keyToFileName(key))
+
+	cnf.updateMaps()
 
 	if len(ings) > 0 {
 		if err := cnf.nginx.Reload(); err != nil {
@@ -627,7 +729,12 @@ func (cnf *Configurator) DeleteSecret(key string, ings []extensions.Ingress) err
 
 // DeleteIngress deletes NGINX configuration for the Ingress resource
 func (cnf *Configurator) DeleteIngress(key string) error {
+	delete(cnf.ingresses, key)
+
 	cnf.nginx.DeleteIngress(keyToFileName(key))
+
+	cnf.updateMaps()
+
 	if err := cnf.nginx.Reload(); err != nil {
 		return fmt.Errorf("Error when removing ingress %v: %v", key, err)
 	}
@@ -718,4 +825,12 @@ func keyToFileName(key string) string {
 
 func objectMetaToFileName(meta *meta_v1.ObjectMeta) string {
 	return meta.Namespace + "-" + meta.Name
+}
+
+func getFullIngressName(ingress *extensions.Ingress) string {
+	return fmt.Sprintf(
+		"%s/%s",
+		ingress.Namespace,
+		ingress.Name,
+	)
 }
