@@ -716,9 +716,9 @@ func (cnf *Configurator) DeleteSecret(key string, ings []extensions.Ingress) err
 
 	cnf.nginx.DeleteSecretFile(keyToFileName(key))
 
-	cnf.updateMaps()
-
 	if len(ings) > 0 {
+		cnf.updateMaps()
+
 		if err := cnf.nginx.Reload(); err != nil {
 			return fmt.Errorf("Error when reloading NGINX when deleting Secret %v: %v", key, err)
 		}
