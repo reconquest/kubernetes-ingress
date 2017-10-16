@@ -167,6 +167,7 @@ func NewNginxController(
 		WorkerProcesses:        NewDefaultConfig().MainWorkerProcesses,
 	}
 	ngxc.UpdateMainConfigFile(cfg)
+	ngxc.UpdateMapsConfigFile([]Map{})
 
 	return &ngxc, nil
 }
