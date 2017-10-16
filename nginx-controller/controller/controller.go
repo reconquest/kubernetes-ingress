@@ -1033,13 +1033,17 @@ func (lbc *LoadBalancerController) getEndpointsInfo(
 		for _, container := range pod.Spec.Containers {
 			for _, port := range container.Ports {
 				info = append(info, nginx.EndpointInfo{
-					Address: fmt.Sprintf("%s:%d", ip, port.ContainerPort),
-					Info: map[string]interface{}{
-						"namespace":  pod.Namespace,
-						"pod":        pod.Name,
-						"container":  container.Name,
-						"pod_labels": nginx.Labels(pod.Labels),
-					},
+					Address:   fmt.Sprintf("%s:%d", ip, port.ContainerPort),
+					Namespace: pod.Namespace,
+					Pod:       pod.Name,
+					Container: container.Name,
+					PodLabels: nginx.Labels(pod.Labels),
+					//Info: map[string]interface{}{
+					//    "namespace":  pod.Namespace,
+					//    "pod":        pod.Name,
+					//    "container":  container.Name,
+					//    "pod_labels": nginx.Labels(pod.Labels),
+					//},
 				})
 			}
 		}

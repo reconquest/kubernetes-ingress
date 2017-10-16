@@ -74,12 +74,7 @@ func (cnf *Configurator) addOrUpdateIngress(ingEx *IngressEx) {
 func (cnf *Configurator) updateMaps() {
 	maps := []Map{}
 
-	for _, variable := range []string{
-		"namespace",
-		"pod",
-		"container",
-		"pod_labels",
-	} {
+	for variable, _ := range (EndpointInfo{}).GetMapValues() {
 		values := map[string]string{}
 
 		for _, ingress := range cnf.ingresses {
@@ -239,34 +234,56 @@ func getVariableMaps(ingEx *IngressEx) []Map {
 
 	for key, _ := range ingEx.Endpoints {
 		bucket := ingEx.EndpointsInfo[key]
-
-		for _, variable := range []string{
-			"namespace",
-			"pod",
-			"container",
-			"pod_labels",
-		} {
-			if _, ok := maps[variable]; !ok {
-				maps[variable] = Map{
-					Source: "$upstream_addr",
-					Variable: getMappedVariableName(
-						ingEx.Ingress.Namespace,
-						ingEx.Ingress.Name,
-						"k8s_upstream_"+variable,
-					),
-					Values: map[string]string{},
+		for _, info := range bucket {
+			for variable, value := range info.GetMapValues() {
+				if _, ok := maps[variable]; !ok {
+					maps[variable] = Map{
+						Source: "$upstream_addr",
+						Variable: getMappedVariableName(
+							ingEx.Ingress.Namespace,
+							ingEx.Ingress.Name,
+							"k8s_upstream_"+variable,
+						),
+						Values: map[string]string{},
+					}
 				}
-			}
 
-			for _, info := range bucket {
 				address := `~` + regexp.QuoteMeta(info.Address) + `$`
 
 				maps[variable].Values[address] = fmt.Sprintf(
 					"%q",
-					info.Info[variable],
+					value,
 				)
 			}
 		}
+
+		//for _, variable := range []string{
+		//    "namespace",
+		//    "pod",
+		//    "container",
+		//    "pod_labels",
+		//} {
+		//    if _, ok := maps[variable]; !ok {
+		//        maps[variable] = Map{
+		//            Source: "$upstream_addr",
+		//            Variable: getMappedVariableName(
+		//                ingEx.Ingress.Namespace,
+		//                ingEx.Ingress.Name,
+		//                "k8s_upstream_"+variable,
+		//            ),
+		//            Values: map[string]string{},
+		//        }
+		//    }
+
+		//    for _, info := range bucket {
+		//        address := `~` + regexp.QuoteMeta(info.Address) + `$`
+
+		//        maps[variable].Values[address] = fmt.Sprintf(
+		//            "%q",
+		//            info.Info[variable],
+		//        )
+		//    }
+		//}
 	}
 
 	result := []Map{}
