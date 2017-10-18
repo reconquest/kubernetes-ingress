@@ -234,6 +234,15 @@ func getVariableMaps(ingEx *IngressEx) []Map {
 
 	for key, _ := range ingEx.Endpoints {
 		bucket := ingEx.EndpointsInfo[key]
+
+		// If there's no matching endpoints for ingress, we should
+		// provide dummy maps to satisfy maps.conf mappings.
+		if len(bucket) == 0 {
+			bucket = []EndpointInfo{
+				NewDefaultEndpointInfo(),
+			}
+		}
+
 		for _, info := range bucket {
 			for variable, value := range info.GetMapValues() {
 				if _, ok := maps[variable]; !ok {

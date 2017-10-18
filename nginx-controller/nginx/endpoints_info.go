@@ -5,14 +5,24 @@ import (
 	"strings"
 )
 
-// TODO
+// EndpointInfo describes pod-level information about given endpoint.
 type EndpointInfo struct {
-	Address string
-	//Info    map[string]interface{}
+	Address   string
 	Namespace string
 	Pod       string
 	Container string
 	PodLabels Labels
+}
+
+func NewDefaultEndpointInfo() EndpointInfo {
+	upstream := NewUpstreamWithDefaultServer("default")
+	return EndpointInfo{
+		Address: fmt.Sprintf(
+			"%s:%s",
+			upstream.UpstreamServers[0].Address,
+			upstream.UpstreamServers[0].Port,
+		),
+	}
 }
 
 func (info EndpointInfo) GetMapValues() map[string]string {
