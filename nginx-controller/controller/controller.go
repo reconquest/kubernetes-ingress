@@ -1009,9 +1009,7 @@ func (lbc *LoadBalancerController) getTargetPort(svcPort *api_v1.ServicePort, sv
 	return portNum, nil
 }
 
-func (lbc *LoadBalancerController) getEndpointsInfo(
-	svc *api_v1.Service,
-) ([]nginx.EndpointInfo, error) {
+func (lbc *LoadBalancerController) getEndpointsInfo(svc *api_v1.Service) ([]nginx.EndpointInfo, error) {
 	pods, err := lbc.client.Core().Pods(svc.Namespace).List(
 		meta_v1.ListOptions{
 			LabelSelector: labels.Set(svc.Spec.Selector).String(),

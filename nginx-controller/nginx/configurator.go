@@ -265,34 +265,6 @@ func getVariableMaps(ingEx *IngressEx) []Map {
 				)
 			}
 		}
-
-		//for _, variable := range []string{
-		//    "namespace",
-		//    "pod",
-		//    "container",
-		//    "pod_labels",
-		//} {
-		//    if _, ok := maps[variable]; !ok {
-		//        maps[variable] = Map{
-		//            Source: "$upstream_addr",
-		//            Variable: getMappedVariableName(
-		//                ingEx.Ingress.Namespace,
-		//                ingEx.Ingress.Name,
-		//                "k8s_upstream_"+variable,
-		//            ),
-		//            Values: map[string]string{},
-		//        }
-		//    }
-
-		//    for _, info := range bucket {
-		//        address := `~` + regexp.QuoteMeta(info.Address) + `$`
-
-		//        maps[variable].Values[address] = fmt.Sprintf(
-		//            "%q",
-		//            info.Info[variable],
-		//        )
-		//    }
-		//}
 	}
 
 	result := []Map{}
