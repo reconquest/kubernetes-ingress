@@ -554,7 +554,7 @@ func getServicesPorts(ingEx *IngressEx) ([]int, []int) {
 }
 
 func parsePort(value string) (int, error) {
-	port, err := strconv.ParseInt(value, 10, 16)
+	port, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf(
 			"Unable to parse port as integer: %s\n",
