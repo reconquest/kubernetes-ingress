@@ -1,3 +1,4 @@
+{{- if eq .Type "http" }}
 {{range $upstream := .Upstreams}}
 upstream {{$upstream.Name}} {
 	{{if $upstream.LBMethod }}{{$upstream.LBMethod}};{{end}}
@@ -39,7 +40,7 @@ server {
 	server_tokens {{$server.ServerTokens}};
 
 	server_name {{$server.Name}};
-	
+
 	{{range $proxyHideHeader := $server.ProxyHideHeaders}}
 	proxy_hide_header {{$proxyHideHeader}};{{end}}
 	{{range $proxyPassHeader := $server.ProxyPassHeaders}}
@@ -107,3 +108,29 @@ server {
 		{{end}}
 	}{{end}}
 }{{end}}
+{{- else }}
+upstream {{.Upstream.Name}} {
+	{{if .Upstream.LBMethod }}{{.Upstream.LBMethod}};{{end}}
+	{{range $server := .Upstream.UpstreamServers}}
+	server {{$server.Address}}:{{$server.Port}};{{end}}
+}
+
+server {
+	{{range $port := .Server.Ports}}
+	listen {{$port}};
+	{{- end}}
+	{{- if .Server.ServerSnippets}}
+	{{range $value := .Server.ServerSnippets}}
+	{{$value}}{{end}}
+	{{- end}}
+
+    {{- if .Server.ProxyBufferSize}}
+    proxy_connect_timeout {{.Server.ProxyConnectTimeout}};
+    {{- end }}
+    {{- if .Server.ProxyBufferSize}}
+    proxy_buffer_size {{.Server.ProxyBufferSize}};
+    {{- end}}
+
+    proxy_pass {{.Upstream.Name}};
+}
+{{ end }}

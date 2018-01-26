@@ -13,17 +13,24 @@ const nginxMainTmpl = "nginx.tmpl"
 const nginxPlusIngressTmpl = "nginx-plus.ingress.tmpl"
 const nginxPlusMainTmpl = "nginx-plus.tmpl"
 
-var testUps = nginx.Upstream{
+var testUpsHTTP = nginx.UpstreamHTTP{
 	Name: "test",
 	UpstreamServers: []nginx.UpstreamServer{
 		{"127.0.0.1", "8181"},
 	},
 }
 
-var ingCfg = nginx.IngressNginxConfig{
+var testUpsStream = nginx.UpstreamStream{
+	Name: "test",
+	UpstreamServers: []nginx.UpstreamServer{
+		{"127.0.0.1", "8181"},
+	},
+}
 
-	Servers: []nginx.Server{
-		nginx.Server{
+var ingCfgHTTP = nginx.IngressNginxConfigHTTP{
+
+	Servers: []nginx.ServerHTTP{
+		nginx.ServerHTTP{
 			Name:              "test.example.com",
 			ServerTokens:      "off",
 			StatusZone:        "test.example.com",
@@ -39,7 +46,7 @@ var ingCfg = nginx.IngressNginxConfig{
 			Locations: []nginx.Location{
 				nginx.Location{
 					Path:                "/",
-					Upstream:            testUps,
+					Upstream:            testUpsHTTP,
 					ProxyConnectTimeout: "10s",
 					ProxyReadTimeout:    "10s",
 					ClientMaxBodySize:   "2m",
@@ -47,8 +54,19 @@ var ingCfg = nginx.IngressNginxConfig{
 			},
 		},
 	},
-	Upstreams: []nginx.Upstream{testUps},
+	Upstreams: []nginx.UpstreamHTTP{testUpsHTTP},
 	Keepalive: "16",
+}
+
+var ingCfgStream = nginx.IngressNginxConfigStream{
+
+	Server: nginx.ServerStream{
+		Ports:               []int{10, 20},
+		ServerSnippets:      []string{"snippet"},
+		ProxyConnectTimeout: "string_connect_timeout",
+		ProxyBufferSize:     "string_buffer_size",
+	},
+	Upstream: testUpsStream,
 }
 
 var mainCfg = nginx.NginxMainConfig{
@@ -58,7 +76,7 @@ var mainCfg = nginx.NginxMainConfig{
 	WorkerCPUAffinity:      "auto",
 }
 
-func TestIngressForNGINXPlus(t *testing.T) {
+func TestIngressHTTPForNGINXPlus(t *testing.T) {
 	tmpl, err := template.New(nginxPlusIngressTmpl).ParseFiles(nginxPlusIngressTmpl)
 	if err != nil {
 		t.Fatalf("Failed to parse template file: %v", err)
@@ -66,14 +84,14 @@ func TestIngressForNGINXPlus(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	err = tmpl.Execute(&buf, ingCfg)
+	err = tmpl.Execute(&buf, ingCfgHTTP)
 	t.Log(string(buf.Bytes()))
 	if err != nil {
 		t.Fatalf("Failed to write template %v", err)
 	}
 }
 
-func TestIngressForNGINX(t *testing.T) {
+func TestIngressHTTPForNGINX(t *testing.T) {
 	tmpl, err := template.New(nginxIngressTmpl).ParseFiles(nginxIngressTmpl)
 	if err != nil {
 		t.Fatalf("Failed to parse template file: %v", err)
@@ -81,7 +99,37 @@ func TestIngressForNGINX(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	err = tmpl.Execute(&buf, ingCfg)
+	err = tmpl.Execute(&buf, ingCfgHTTP)
+	t.Log(string(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("Failed to write template %v", err)
+	}
+}
+
+func TestIngressStreamForNGINXPlus(t *testing.T) {
+	tmpl, err := template.New(nginxPlusIngressTmpl).ParseFiles(nginxPlusIngressTmpl)
+	if err != nil {
+		t.Fatalf("Failed to parse template file: %v", err)
+	}
+
+	var buf bytes.Buffer
+
+	err = tmpl.Execute(&buf, ingCfgStream)
+	t.Log(string(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("Failed to write template %v", err)
+	}
+}
+
+func TestIngressStreamForNGINX(t *testing.T) {
+	tmpl, err := template.New(nginxIngressTmpl).ParseFiles(nginxIngressTmpl)
+	if err != nil {
+		t.Fatalf("Failed to parse template file: %v", err)
+	}
+
+	var buf bytes.Buffer
+
+	err = tmpl.Execute(&buf, ingCfgStream)
 	t.Log(string(buf.Bytes()))
 	if err != nil {
 		t.Fatalf("Failed to write template %v", err)

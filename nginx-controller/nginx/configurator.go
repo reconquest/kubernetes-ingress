@@ -126,31 +126,47 @@ func (cnf *Configurator) updateSecrets(ingEx *IngressEx) (map[string]string, str
 func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]string, jwtKeyFileName string) IngressNginxConfig {
 	ingCfg := cnf.createConfig(ingEx)
 
-	upstreams := make(map[string]Upstream)
+	if ingCfg.Stream {
+		return cnf.generateNginxCfgStream(ingEx, ingCfg)
+	} else {
+		return cnf.generateNginxCfgHTTP(ingEx, ingCfg, pems, jwtKeyFileName)
+	}
+}
 
-	wsServices := getWebsocketServices(ingEx)
-	spServices := getSessionPersistenceServices(ingEx)
-	rewrites := getRewrites(ingEx)
-	sslServices := getSSLServices(ingEx)
+func (cnf *Configurator) generateNginxCfgHTTP(ingEx *IngressEx, ingCfg Config, pems map[string]string, jwtKeyFileName string) IngressNginxConfigHTTP {
+	var (
+		upstreams   = make(map[string]UpstreamHTTP)
+		wsServices  = getWebsocketServices(ingEx)
+		spServices  = getSessionPersistenceServices(ingEx)
+		rewrites    = getRewrites(ingEx)
+		sslServices = getSSLServices(ingEx)
+	)
 
+	// default backend
 	if ingEx.Ingress.Spec.Backend != nil {
 		name := getNameForUpstream(ingEx.Ingress, emptyHost, ingEx.Ingress.Spec.Backend.ServiceName)
-		upstream := cnf.createUpstream(ingEx, name, ingEx.Ingress.Spec.Backend, ingEx.Ingress.Namespace, spServices[ingEx.Ingress.Spec.Backend.ServiceName], ingCfg.LBMethod)
+		upstream := cnf.createUpstreamHTTP(
+			ingEx,
+			name,
+			ingEx.Ingress.Spec.Backend,
+			ingEx.Ingress.Namespace,
+			spServices[ingEx.Ingress.Spec.Backend.ServiceName],
+			ingCfg.LBMethod,
+		)
 		upstreams[name] = upstream
 	}
 
-	var servers []Server
+	var servers []ServerHTTP
 
 	for _, rule := range ingEx.Ingress.Spec.Rules {
 		if rule.IngressRuleValue.HTTP == nil {
 			continue
 		}
-
 		serverName := rule.Host
 
 		statuzZone := rule.Host
 
-		server := Server{
+		server := ServerHTTP{
 			Name:                  serverName,
 			ServerTokens:          ingCfg.ServerTokens,
 			HTTP2:                 ingCfg.HTTP2,
@@ -188,14 +204,14 @@ func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]stri
 		rootLocation := false
 
 		for _, path := range rule.HTTP.Paths {
-			upsName := getNameForUpstream(ingEx.Ingress, rule.Host, path.Backend.ServiceName)
+			upstreamName := getNameForUpstream(ingEx.Ingress, rule.Host, path.Backend.ServiceName)
 
-			if _, exists := upstreams[upsName]; !exists {
-				upstream := cnf.createUpstream(ingEx, upsName, &path.Backend, ingEx.Ingress.Namespace, spServices[path.Backend.ServiceName], ingCfg.LBMethod)
-				upstreams[upsName] = upstream
+			if _, exists := upstreams[upstreamName]; !exists {
+				upstream := cnf.createUpstreamHTTP(ingEx, upstreamName, &path.Backend, ingEx.Ingress.Namespace, spServices[path.Backend.ServiceName], ingCfg.LBMethod)
+				upstreams[upstreamName] = upstream
 			}
 
-			loc := createLocation(pathOrDefault(path.Path), upstreams[upsName], &ingCfg, wsServices[path.Backend.ServiceName], rewrites[path.Backend.ServiceName], sslServices[path.Backend.ServiceName])
+			loc := createLocation(pathOrDefault(path.Path), upstreams[upstreamName], &ingCfg, wsServices[path.Backend.ServiceName], rewrites[path.Backend.ServiceName], sslServices[path.Backend.ServiceName])
 			locations = append(locations, loc)
 
 			if loc.Path == "/" {
@@ -204,8 +220,8 @@ func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]stri
 		}
 
 		if rootLocation == false && ingEx.Ingress.Spec.Backend != nil {
-			upsName := getNameForUpstream(ingEx.Ingress, emptyHost, ingEx.Ingress.Spec.Backend.ServiceName)
-			loc := createLocation(pathOrDefault("/"), upstreams[upsName], &ingCfg, wsServices[ingEx.Ingress.Spec.Backend.ServiceName], rewrites[ingEx.Ingress.Spec.Backend.ServiceName], sslServices[ingEx.Ingress.Spec.Backend.ServiceName])
+			upstreamName := getNameForUpstream(ingEx.Ingress, emptyHost, ingEx.Ingress.Spec.Backend.ServiceName)
+			loc := createLocation(pathOrDefault("/"), upstreams[upstreamName], &ingCfg, wsServices[ingEx.Ingress.Spec.Backend.ServiceName], rewrites[ingEx.Ingress.Spec.Backend.ServiceName], sslServices[ingEx.Ingress.Spec.Backend.ServiceName])
 			locations = append(locations, loc)
 		}
 
@@ -219,7 +235,7 @@ func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]stri
 		keepalive = strconv.FormatInt(ingCfg.Keepalive, 10)
 	}
 
-	return IngressNginxConfig{
+	config := IngressNginxConfigHTTP{
 		Namespace:   ingEx.Ingress.Namespace,
 		IngressName: ingEx.Ingress.Name,
 		Upstreams:   upstreamMapToSlice(upstreams),
@@ -227,6 +243,43 @@ func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]stri
 		Keepalive:   keepalive,
 		Maps:        getVariableMaps(ingEx),
 	}
+
+	return config
+}
+
+func (cnf *Configurator) generateNginxCfgStream(ingEx *IngressEx, ingCfg Config) IngressNginxConfigStream {
+	var config IngressNginxConfigStream
+	if len(ingEx.Ingress.Spec.Rules) > 0 {
+		glog.Warning(
+			"Stream server type specified, rules directive is not " +
+				"supported, ignoring.",
+		)
+	}
+
+	if ingEx.Ingress.Spec.Backend == nil {
+		glog.Error("Stream server type specified, but spec.backend is not defined")
+	} else {
+		config.Upstream = cnf.createUpstreamStream(
+			ingEx,
+			getNameForUpstream(ingEx.Ingress, emptyHost, ingEx.Ingress.Spec.Backend.ServiceName),
+			ingEx.Ingress.Spec.Backend,
+			ingEx.Ingress.Namespace,
+			ingCfg.LBMethod,
+		)
+
+		config.Server = ServerStream{
+			Ports:               ingCfg.Ports,
+			ServerSnippets:      ingCfg.ServerSnippets,
+			ProxyBufferSize:     ingCfg.ProxyBufferSize,
+			ProxyConnectTimeout: ingCfg.ProxyConnectTimeout,
+		}
+	}
+
+	config.Namespace = ingEx.Ingress.Namespace
+	config.IngressName = ingEx.Ingress.Name
+	config.Maps = getVariableMaps(ingEx)
+
+	return config
 }
 
 func getVariableMaps(ingEx *IngressEx) []Map {
@@ -283,18 +336,12 @@ func (cnf *Configurator) createConfig(ingEx *IngressEx) Config {
 		ingCfg.LBMethod = lbMethod
 	}
 
-	if serverTokens, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/server-tokens", ingEx.Ingress); exists {
+	stream, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/stream", ingEx.Ingress)
+	if exists {
 		if err != nil {
-			if cnf.isPlus() {
-				ingCfg.ServerTokens = ingEx.Ingress.Annotations["nginx.org/server-tokens"]
-			} else {
-				glog.Error(err)
-			}
+			glog.Error(err)
 		} else {
-			ingCfg.ServerTokens = "off"
-			if serverTokens {
-				ingCfg.ServerTokens = "on"
-			}
+			ingCfg.Stream = stream
 		}
 	}
 
@@ -305,113 +352,13 @@ func (cnf *Configurator) createConfig(ingEx *IngressEx) Config {
 			ingCfg.ServerSnippets = serverSnippets
 		}
 	}
-	if locationSnippets, exists, err := GetMapKeyAsStringSlice(ingEx.Ingress.Annotations, "nginx.org/location-snippets", ingEx.Ingress, "\n"); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			ingCfg.LocationSnippets = locationSnippets
-		}
-	}
 
 	if proxyConnectTimeout, exists := ingEx.Ingress.Annotations["nginx.org/proxy-connect-timeout"]; exists {
 		ingCfg.ProxyConnectTimeout = proxyConnectTimeout
 	}
-	if proxyReadTimeout, exists := ingEx.Ingress.Annotations["nginx.org/proxy-read-timeout"]; exists {
-		ingCfg.ProxyReadTimeout = proxyReadTimeout
-	}
-	if proxyHideHeaders, exists, err := GetMapKeyAsStringSlice(ingEx.Ingress.Annotations, "nginx.org/proxy-hide-headers", ingEx.Ingress, ","); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			ingCfg.ProxyHideHeaders = proxyHideHeaders
-		}
-	}
-	if proxyPassHeaders, exists, err := GetMapKeyAsStringSlice(ingEx.Ingress.Annotations, "nginx.org/proxy-pass-headers", ingEx.Ingress, ","); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			ingCfg.ProxyPassHeaders = proxyPassHeaders
-		}
-	}
-	if clientMaxBodySize, exists := ingEx.Ingress.Annotations["nginx.org/client-max-body-size"]; exists {
-		ingCfg.ClientMaxBodySize = clientMaxBodySize
-	}
-	if redirectToHTTPS, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/redirect-to-https", ingEx.Ingress); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			ingCfg.RedirectToHTTPS = redirectToHTTPS
-		}
-	}
-	if sslRedirect, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "ingress.kubernetes.io/ssl-redirect", ingEx.Ingress); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			ingCfg.SSLRedirect = sslRedirect
-		}
-	}
-	if proxyBuffering, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/proxy-buffering", ingEx.Ingress); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			ingCfg.ProxyBuffering = proxyBuffering
-		}
-	}
 
-	if hsts, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/hsts", ingEx.Ingress); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			parsingErrors := false
-
-			hstsMaxAge, existsMA, err := GetMapKeyAsInt(ingEx.Ingress.Annotations, "nginx.org/hsts-max-age", ingEx.Ingress)
-			if existsMA && err != nil {
-				glog.Error(err)
-				parsingErrors = true
-			}
-			hstsIncludeSubdomains, existsIS, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/hsts-include-subdomains", ingEx.Ingress)
-			if existsIS && err != nil {
-				glog.Error(err)
-				parsingErrors = true
-			}
-
-			if parsingErrors {
-				glog.Errorf("Ingress %s/%s: There are configuration issues with hsts annotations, skipping annotions for all hsts settings", ingEx.Ingress.GetNamespace(), ingEx.Ingress.GetName())
-			} else {
-				ingCfg.HSTS = hsts
-				if existsMA {
-					ingCfg.HSTSMaxAge = hstsMaxAge
-				}
-				if existsIS {
-					ingCfg.HSTSIncludeSubdomains = hstsIncludeSubdomains
-				}
-			}
-		}
-	}
-
-	if proxyBuffers, exists := ingEx.Ingress.Annotations["nginx.org/proxy-buffers"]; exists {
-		ingCfg.ProxyBuffers = proxyBuffers
-	}
 	if proxyBufferSize, exists := ingEx.Ingress.Annotations["nginx.org/proxy-buffer-size"]; exists {
 		ingCfg.ProxyBufferSize = proxyBufferSize
-	}
-	if proxyMaxTempFileSize, exists := ingEx.Ingress.Annotations["nginx.org/proxy-max-temp-file-size"]; exists {
-		ingCfg.ProxyMaxTempFileSize = proxyMaxTempFileSize
-	}
-
-	if cnf.isPlus() {
-		if jwtRealm, exists := ingEx.Ingress.Annotations["nginx.com/jwt-realm"]; exists {
-			ingCfg.JWTRealm = jwtRealm
-		}
-		if jwtKey, exists := ingEx.Ingress.Annotations[JWTKeyAnnotation]; exists {
-			ingCfg.JWTKey = fmt.Sprintf("%v/%v", ingEx.Ingress.Namespace, jwtKey)
-		}
-		if jwtToken, exists := ingEx.Ingress.Annotations["nginx.com/jwt-token"]; exists {
-			ingCfg.JWTToken = jwtToken
-		}
-		if jwtLoginURL, exists := ingEx.Ingress.Annotations["nginx.com/jwt-login-url"]; exists {
-			ingCfg.JWTLoginURL = jwtLoginURL
-		}
 	}
 
 	ports, sslPorts := getServicesPorts(ingEx)
@@ -419,15 +366,135 @@ func (cnf *Configurator) createConfig(ingEx *IngressEx) Config {
 		ingCfg.Ports = ports
 	}
 
-	if len(sslPorts) > 0 {
-		ingCfg.SSLPorts = sslPorts
-	}
+	if !stream {
+		if len(sslPorts) > 0 {
+			ingCfg.SSLPorts = sslPorts
+		}
 
-	if keepalive, exists, err := GetMapKeyAsInt(ingEx.Ingress.Annotations, "nginx.org/keepalive", ingEx.Ingress); exists {
-		if err != nil {
-			glog.Error(err)
-		} else {
-			ingCfg.Keepalive = keepalive
+		if serverTokens, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/server-tokens", ingEx.Ingress); exists {
+			if err != nil {
+				if cnf.isPlus() {
+					ingCfg.ServerTokens = ingEx.Ingress.Annotations["nginx.org/server-tokens"]
+				} else {
+					glog.Error(err)
+				}
+			} else {
+				ingCfg.ServerTokens = "off"
+				if serverTokens {
+					ingCfg.ServerTokens = "on"
+				}
+			}
+		}
+
+		if locationSnippets, exists, err := GetMapKeyAsStringSlice(ingEx.Ingress.Annotations, "nginx.org/location-snippets", ingEx.Ingress, "\n"); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				ingCfg.LocationSnippets = locationSnippets
+			}
+		}
+
+		if proxyReadTimeout, exists := ingEx.Ingress.Annotations["nginx.org/proxy-read-timeout"]; exists {
+			ingCfg.ProxyReadTimeout = proxyReadTimeout
+		}
+		if proxyHideHeaders, exists, err := GetMapKeyAsStringSlice(ingEx.Ingress.Annotations, "nginx.org/proxy-hide-headers", ingEx.Ingress, ","); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				ingCfg.ProxyHideHeaders = proxyHideHeaders
+			}
+		}
+		if proxyPassHeaders, exists, err := GetMapKeyAsStringSlice(ingEx.Ingress.Annotations, "nginx.org/proxy-pass-headers", ingEx.Ingress, ","); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				ingCfg.ProxyPassHeaders = proxyPassHeaders
+			}
+		}
+		if clientMaxBodySize, exists := ingEx.Ingress.Annotations["nginx.org/client-max-body-size"]; exists {
+			ingCfg.ClientMaxBodySize = clientMaxBodySize
+		}
+		if redirectToHTTPS, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/redirect-to-https", ingEx.Ingress); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				ingCfg.RedirectToHTTPS = redirectToHTTPS
+			}
+		}
+		if sslRedirect, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "ingress.kubernetes.io/ssl-redirect", ingEx.Ingress); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				ingCfg.SSLRedirect = sslRedirect
+			}
+		}
+		if proxyBuffering, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/proxy-buffering", ingEx.Ingress); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				ingCfg.ProxyBuffering = proxyBuffering
+			}
+		}
+
+		if hsts, exists, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/hsts", ingEx.Ingress); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				parsingErrors := false
+
+				hstsMaxAge, existsMA, err := GetMapKeyAsInt(ingEx.Ingress.Annotations, "nginx.org/hsts-max-age", ingEx.Ingress)
+				if existsMA && err != nil {
+					glog.Error(err)
+					parsingErrors = true
+				}
+				hstsIncludeSubdomains, existsIS, err := GetMapKeyAsBool(ingEx.Ingress.Annotations, "nginx.org/hsts-include-subdomains", ingEx.Ingress)
+				if existsIS && err != nil {
+					glog.Error(err)
+					parsingErrors = true
+				}
+
+				if parsingErrors {
+					glog.Errorf("Ingress %s/%s: There are configuration issues with hsts annotations, skipping annotions for all hsts settings", ingEx.Ingress.GetNamespace(), ingEx.Ingress.GetName())
+				} else {
+					ingCfg.HSTS = hsts
+					if existsMA {
+						ingCfg.HSTSMaxAge = hstsMaxAge
+					}
+					if existsIS {
+						ingCfg.HSTSIncludeSubdomains = hstsIncludeSubdomains
+					}
+				}
+			}
+		}
+
+		if proxyBuffers, exists := ingEx.Ingress.Annotations["nginx.org/proxy-buffers"]; exists {
+			ingCfg.ProxyBuffers = proxyBuffers
+		}
+		if proxyMaxTempFileSize, exists := ingEx.Ingress.Annotations["nginx.org/proxy-max-temp-file-size"]; exists {
+			ingCfg.ProxyMaxTempFileSize = proxyMaxTempFileSize
+		}
+
+		if cnf.isPlus() {
+			if jwtRealm, exists := ingEx.Ingress.Annotations["nginx.com/jwt-realm"]; exists {
+				ingCfg.JWTRealm = jwtRealm
+			}
+			if jwtKey, exists := ingEx.Ingress.Annotations[JWTKeyAnnotation]; exists {
+				ingCfg.JWTKey = fmt.Sprintf("%v/%v", ingEx.Ingress.Namespace, jwtKey)
+			}
+			if jwtToken, exists := ingEx.Ingress.Annotations["nginx.com/jwt-token"]; exists {
+				ingCfg.JWTToken = jwtToken
+			}
+			if jwtLoginURL, exists := ingEx.Ingress.Annotations["nginx.com/jwt-login-url"]; exists {
+				ingCfg.JWTLoginURL = jwtLoginURL
+			}
+		}
+
+		if keepalive, exists, err := GetMapKeyAsInt(ingEx.Ingress.Annotations, "nginx.org/keepalive", ingEx.Ingress); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				ingCfg.Keepalive = keepalive
+			}
 		}
 	}
 
@@ -572,7 +639,7 @@ func parsePort(value string) (int, error) {
 	return int(port), nil
 }
 
-func createLocation(path string, upstream Upstream, cfg *Config, websocket bool, rewrite string, ssl bool) Location {
+func createLocation(path string, upstream UpstreamHTTP, cfg *Config, websocket bool, rewrite string, ssl bool) Location {
 	loc := Location{
 		Path:                 path,
 		Upstream:             upstream,
@@ -592,13 +659,50 @@ func createLocation(path string, upstream Upstream, cfg *Config, websocket bool,
 	return loc
 }
 
-func (cnf *Configurator) createUpstream(ingEx *IngressEx, name string, backend *extensions.IngressBackend, namespace string, stickyCookie string, lbMethod string) Upstream {
-	var ups Upstream
+func (cnf *Configurator) createUpstreamStream(
+	ingEx *IngressEx,
+	name string,
+	backend *extensions.IngressBackend,
+	namespace string,
+	lbMethod string,
+) UpstreamStream {
+	var ups UpstreamStream
 
 	if cnf.isPlus() {
-		ups = Upstream{Name: name, StickyCookie: stickyCookie}
+		ups = UpstreamStream{Name: name}
 	} else {
-		ups = NewUpstreamWithDefaultServer(name)
+		ups = NewUpstreamStreamWithDefaultServer(name)
+	}
+
+	endps, exists := ingEx.Endpoints[backend.ServiceName+backend.ServicePort.String()]
+	if exists {
+		var upsServers []UpstreamServer
+		for _, endp := range endps {
+			addressport := strings.Split(endp, ":")
+			upsServers = append(upsServers, UpstreamServer{addressport[0], addressport[1]})
+		}
+		if len(upsServers) > 0 {
+			ups.UpstreamServers = upsServers
+		}
+	}
+	ups.LBMethod = lbMethod
+	return ups
+}
+
+func (cnf *Configurator) createUpstreamHTTP(
+	ingEx *IngressEx,
+	name string,
+	backend *extensions.IngressBackend,
+	namespace string,
+	stickyCookie string,
+	lbMethod string,
+) UpstreamHTTP {
+	var ups UpstreamHTTP
+
+	if cnf.isPlus() {
+		ups = UpstreamHTTP{Name: name, StickyCookie: stickyCookie}
+	} else {
+		ups = NewUpstreamHTTPWithDefaultServer(name)
 	}
 
 	endps, exists := ingEx.Endpoints[backend.ServiceName+backend.ServicePort.String()]
@@ -627,8 +731,8 @@ func getNameForUpstream(ing *extensions.Ingress, host string, service string) st
 	return fmt.Sprintf("%v-%v-%v-%v", ing.Namespace, ing.Name, host, service)
 }
 
-func upstreamMapToSlice(upstreams map[string]Upstream) []Upstream {
-	result := make([]Upstream, 0, len(upstreams))
+func upstreamMapToSlice(upstreams map[string]UpstreamHTTP) []UpstreamHTTP {
+	result := make([]UpstreamHTTP, 0, len(upstreams))
 
 	for _, ups := range upstreams {
 		result = append(result, ups)

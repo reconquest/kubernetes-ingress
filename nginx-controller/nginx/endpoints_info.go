@@ -15,7 +15,7 @@ type EndpointInfo struct {
 }
 
 func NewDefaultEndpointInfo() EndpointInfo {
-	upstream := NewUpstreamWithDefaultServer("default")
+	upstream := NewUpstreamHTTPWithDefaultServer("default")
 	return EndpointInfo{
 		Address: fmt.Sprintf(
 			"%s:%s",

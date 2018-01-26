@@ -7,10 +7,21 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"sync"
 	"text/template"
 
 	"github.com/golang/glog"
 )
+
+type Server interface {
+	// Type returns type of given server. Could be http or stream.
+	Type() string
+}
+
+type IngressNginxConfig interface {
+	// Type returns type of given ingress nginx config. Could be http or stream.
+	Type() string
+}
 
 const dhparamFilename = "dhparam.pem"
 
@@ -27,24 +38,49 @@ type NginxController struct {
 	nginxConfTemplatePath     string
 	nginxMapsConfTemplatePath string
 	nginxIngressTempatePath   string
+
+	templates *sync.Map
 }
 
-// IngressNginxConfig describes an NGINX configuration
-type IngressNginxConfig struct {
+// IngressNginxConfig describes an NGINX configuration for HTTP service
+type IngressNginxConfigHTTP struct {
 	Namespace   string
 	IngressName string
-
-	Upstreams []Upstream
-	Servers   []Server
-	Keepalive string
-	Maps      []Map
+	Upstreams   []UpstreamHTTP
+	Servers     []ServerHTTP
+	Keepalive   string
+	Maps        []Map
 }
 
-// Upstream describes an NGINX upstream
-type Upstream struct {
+func (http IngressNginxConfigHTTP) Type() string {
+	return "http"
+}
+
+// IngressNginxConfig describes an NGINX configuration for stream service
+type IngressNginxConfigStream struct {
+	Namespace   string
+	IngressName string
+	Upstream    UpstreamStream
+	Server      ServerStream
+	Maps        []Map
+}
+
+func (stream IngressNginxConfigStream) Type() string {
+	return "stream"
+}
+
+// Upstream describes an NGINX upstream for HTTP service.
+type UpstreamHTTP struct {
 	Name            string
 	UpstreamServers []UpstreamServer
 	StickyCookie    string
+	LBMethod        string
+}
+
+// Upstream describes an NGINX upstream for stream service.
+type UpstreamStream struct {
+	Name            string
+	UpstreamServers []UpstreamServer
 	LBMethod        string
 }
 
@@ -62,8 +98,7 @@ type Map struct {
 	Values   map[string]string
 }
 
-// Server describes an NGINX server
-type Server struct {
+type ServerHTTP struct {
 	ServerSnippets        []string
 	Name                  string
 	ServerTokens          string
@@ -96,11 +131,27 @@ type Server struct {
 	SSLPorts []int
 }
 
+func (http ServerHTTP) Type() string {
+	return "http"
+}
+
+// Server describes an Stream NGINX server
+type ServerStream struct {
+	Ports               []int
+	ServerSnippets      []string
+	ProxyConnectTimeout string
+	ProxyBufferSize     string
+}
+
+func (stream ServerStream) Type() string {
+	return "stream"
+}
+
 // Location describes an NGINX location
 type Location struct {
 	LocationSnippets     []string
 	Path                 string
-	Upstream             Upstream
+	Upstream             UpstreamHTTP
 	ProxyConnectTimeout  string
 	ProxyReadTimeout     string
 	ClientMaxBodySize    string
@@ -132,11 +183,21 @@ type NginxMainConfig struct {
 	WorkerCPUAffinity      string
 }
 
-// NewUpstreamWithDefaultServer creates an upstream with the default server.
+// NewUpstreamHTTPWithDefaultServer creates an upstream with the default server.
 // proxy_pass to an upstream with the default server returns 502.
 // We use it for services that have no endpoints
-func NewUpstreamWithDefaultServer(name string) Upstream {
-	return Upstream{
+func NewUpstreamHTTPWithDefaultServer(name string) UpstreamHTTP {
+	return UpstreamHTTP{
+		Name:            name,
+		UpstreamServers: []UpstreamServer{UpstreamServer{Address: "127.0.0.1", Port: "8181"}},
+	}
+}
+
+// NewUpstreamStreamWithDefaultServer creates an upstream with the default server.
+// proxy_pass to an upstream with the default server returns EOF.
+// We use it for services that have no endpoints
+func NewUpstreamStreamWithDefaultServer(name string) UpstreamStream {
+	return UpstreamStream{
 		Name:            name,
 		UpstreamServers: []UpstreamServer{UpstreamServer{Address: "127.0.0.1", Port: "8181"}},
 	}
@@ -159,6 +220,7 @@ func NewNginxController(
 		nginxConfTemplatePath:     nginxConfTemplatePath,
 		nginxMapsConfTemplatePath: nginxMapsConfTemplatePath,
 		nginxIngressTempatePath:   nginxIngressTemplatePath,
+		templates:                 &sync.Map{},
 	}
 
 	cfg := &NginxMainConfig{
@@ -175,13 +237,27 @@ func NewNginxController(
 // DeleteIngress deletes the configuration file, which corresponds for the
 // specified ingress from NGINX conf directory
 func (nginx *NginxController) DeleteIngress(name string) {
-	filename := nginx.getIngressNginxConfigFileName(name)
-	glog.V(3).Infof("deleting %v", filename)
+	if nginx.local {
+		return
+	}
 
-	if !nginx.local {
-		if err := os.Remove(filename); err != nil {
-			glog.Warningf("Failed to delete %v: %v", filename, err)
+	var filename string
+	for _, module := range []string{"http", "stream"} {
+		moduleFilename := nginx.getIngressNginxConfigFileName(module, name)
+		if isFileExists(moduleFilename) {
+			filename = moduleFilename
+			break
 		}
+	}
+
+	if filename == "" {
+		glog.Errorf("Failed to delete ingress %s: no file with config found")
+		return
+	}
+
+	glog.V(3).Infof("deleting %v", filename)
+	if err := os.Remove(filename); err != nil {
+		glog.Errorf("Failed to delete %v: %v", filename, err)
 	}
 }
 
@@ -189,7 +265,7 @@ func (nginx *NginxController) DeleteIngress(name string) {
 // the specified configuration for the specified ingress
 func (nginx *NginxController) AddOrUpdateIngress(name string, config IngressNginxConfig) {
 	glog.V(3).Infof("Updating NGINX configuration")
-	filename := nginx.getIngressNginxConfigFileName(name)
+	filename := nginx.getIngressNginxConfigFileName(config.Type(), name)
 	nginx.templateIt(config, filename)
 }
 
@@ -258,8 +334,8 @@ func (nginx *NginxController) DeleteSecretFile(name string) {
 
 }
 
-func (nginx *NginxController) getIngressNginxConfigFileName(name string) string {
-	return path.Join(nginx.nginxConfdPath, name+".conf")
+func (nginx *NginxController) getIngressNginxConfigFileName(ingressType, name string) string {
+	return path.Join(nginx.nginxConfdPath, ingressType+"-"+name+".conf")
 }
 
 func (nginx *NginxController) getSecretFileName(name string) string {
@@ -267,11 +343,7 @@ func (nginx *NginxController) getSecretFileName(name string) string {
 }
 
 func (nginx *NginxController) templateIt(config IngressNginxConfig, filename string) {
-	tmpl, err := template.New(nginx.nginxIngressTempatePath).ParseFiles(nginx.nginxIngressTempatePath)
-	if err != nil {
-		glog.Fatalf("Failed to parse template file: %v", err)
-	}
-
+	tmpl := nginx.getTemplate(nginx.nginxConfTemplatePath)
 	glog.V(3).Infof("Writing NGINX conf to %v", filename)
 
 	if glog.V(3) {
@@ -293,6 +365,21 @@ func (nginx *NginxController) templateIt(config IngressNginxConfig, filename str
 	}
 
 	glog.V(3).Infof("NGINX configuration file had been updated")
+}
+
+func (nginx *NginxController) getTemplate(path string) *template.Template {
+	if tmpl, ok := nginx.templates.Load(path); ok {
+		return tmpl.(*template.Template)
+	}
+
+	tmpl, err := template.New(path).ParseFiles(path)
+	if err != nil {
+		glog.Fatalf("Failed to parse template file %s: %v", path, err)
+	}
+
+	nginx.templates.Store(path, tmpl)
+
+	return tmpl
 }
 
 // Reload reloads NGINX
@@ -428,4 +515,10 @@ func (nginx *NginxController) UpdateMapsConfigFile(maps []Map) {
 	}
 
 	glog.V(3).Infof("The NGINX maps configuration file had been updated")
+}
+
+func isFileExists(filename string) bool {
+	file, err := os.OpenFile(filename, os.O_RDONLY, 0644)
+	defer file.Close()
+	return !os.IsNotExist(err)
 }
