@@ -136,6 +136,21 @@ func TestIngressStreamForNGINX(t *testing.T) {
 	}
 }
 
+func TestIngressStreamAsIngressNginxConfigForNGINX(t *testing.T) {
+	tmpl, err := template.New(nginxIngressTmpl).ParseFiles(nginxIngressTmpl)
+	if err != nil {
+		t.Fatalf("Failed to parse template file: %v", err)
+	}
+
+	var buf bytes.Buffer
+
+	err = tmpl.Execute(&buf, (nginx.IngressNginxConfig)(ingCfgStream))
+	t.Log(string(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("Failed to write template %v", err)
+	}
+}
+
 func TestMainForNGINXPlus(t *testing.T) {
 	tmpl, err := template.New(nginxPlusMainTmpl).ParseFiles(nginxPlusMainTmpl)
 	if err != nil {

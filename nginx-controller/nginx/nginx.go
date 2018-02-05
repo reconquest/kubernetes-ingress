@@ -343,7 +343,7 @@ func (nginx *NginxController) getSecretFileName(name string) string {
 }
 
 func (nginx *NginxController) templateIt(config IngressNginxConfig, filename string) {
-	tmpl := nginx.getTemplate(nginx.nginxConfTemplatePath)
+	tmpl := nginx.getTemplate(nginx.nginxIngressTempatePath)
 	glog.V(3).Infof("Writing NGINX conf to %v", filename)
 
 	if glog.V(3) {
@@ -458,10 +458,7 @@ func shellOut(cmd string) (err error) {
 func (nginx *NginxController) UpdateMainConfigFile(cfg *NginxMainConfig) {
 	cfg.HealthStatus = nginx.healthStatus
 
-	tmpl, err := template.New(nginx.nginxConfTemplatePath).ParseFiles(nginx.nginxConfTemplatePath)
-	if err != nil {
-		glog.Fatalf("Failed to parse the main config template file: %v", err)
-	}
+	tmpl := nginx.getTemplate(nginx.nginxConfTemplatePath)
 
 	filename := "/etc/nginx/nginx.conf"
 	glog.V(3).Infof("Writing NGINX conf to %v", filename)
@@ -486,14 +483,7 @@ func (nginx *NginxController) UpdateMainConfigFile(cfg *NginxMainConfig) {
 }
 
 func (nginx *NginxController) UpdateMapsConfigFile(maps []Map) {
-	tmpl, err := template.New(
-		nginx.nginxMapsConfTemplatePath,
-	).ParseFiles(
-		nginx.nginxMapsConfTemplatePath,
-	)
-	if err != nil {
-		glog.Fatalf("Failed to parse the maps config template file: %v", err)
-	}
+	tmpl := nginx.getTemplate(nginx.nginxMapsConfTemplatePath)
 
 	filename := "/etc/nginx/maps.conf"
 	glog.V(3).Infof("Writing NGINX conf to %v", filename)
