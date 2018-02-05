@@ -397,6 +397,18 @@ func (nginx *NginxController) Reload() error {
 	return nil
 }
 
+// Reload reloads NGINX
+func (nginx *NginxController) Reopen() error {
+	if !nginx.local {
+		if err := shellOut("nginx -s reopen"); err != nil {
+			return fmt.Errorf("Reopening NGINX log files failed: %s", err)
+		}
+	} else {
+		glog.V(3).Info("Reopening nginx log files")
+	}
+	return nil
+}
+
 // Start starts NGINX
 func (nginx *NginxController) Start(done chan error) {
 	if !nginx.local {

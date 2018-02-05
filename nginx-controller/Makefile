@@ -8,7 +8,7 @@ DOCKER_RUN = docker run --rm -v $(shell pwd)/../:/go/src/github.com/nginxinc/kub
 GOLANG_CONTAINER = golang:1.8
 DOCKERFILE = Dockerfile
 
-BUILD_IN_CONTAINER = 1
+BUILD_IN_CONTAINER = 0
 PUSH_TO_GCR =
 GENERATE_DEFAULT_CERT_AND_KEY = 
 

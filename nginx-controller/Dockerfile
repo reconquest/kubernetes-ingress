@@ -15,6 +15,9 @@ RUN rm /etc/nginx/conf.d/*
 
 RUN mkdir -p /etc/nginx/secrets
 
+ADD https://github.com/seletskiy/killinit/releases/download/1.0/killinit /
+RUN chmod +x /killinit
+
 # Uncomment the line below if you would like to add the default.pem to the image
 # and use it as a certificate and key for the default server
 # ADD default.pem /etc/nginx/secrets/default

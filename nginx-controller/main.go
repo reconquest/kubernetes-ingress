@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	sign "github.com/reconquest/sign-go"
 
 	"github.com/nginxinc/kubernetes-ingress/nginx-controller/controller"
 	"github.com/nginxinc/kubernetes-ingress/nginx-controller/nginx"
@@ -145,6 +146,18 @@ func main() {
 		}
 	}
 	cnf := nginx.NewConfigurator(ngxc, nginxConfig, nginxAPI)
+
+	go sign.Notify(
+		func(os.Signal) bool {
+			err := ngxc.Reopen()
+			if err != nil {
+				glog.Errorf("Failed to reload nginx on USR1 signal: %s", err)
+			}
+
+			return true
+		},
+		syscall.SIGUSR1,
+	)
 
 	lbc, _ := controller.NewLoadBalancerController(kubeClient, 30*time.Second, *watchNamespace, cnf, *nginxConfigMaps, *defaultServerSecret, *nginxPlus, *ingressClass, *useIngressClassOnly)
 	go handleTermination(lbc, ngxc, nginxDone)
