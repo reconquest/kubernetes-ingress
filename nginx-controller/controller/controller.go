@@ -907,9 +907,9 @@ func (lbc *LoadBalancerController) createIngress(ing *extensions.Ingress) (*ngin
 		validRules++
 	}
 
-	if validRules == 0 {
-		return nil, fmt.Errorf("Ingress contains no valid rules")
-	}
+	//if validRules == 0 {
+	//    return nil, fmt.Errorf("Ingress contains no valid rules")
+	//}
 
 	return ingEx, nil
 }
