@@ -78,11 +78,25 @@ func (cnf *Configurator) updateMaps() {
 		values := map[string]string{}
 
 		for _, ingress := range cnf.ingresses {
-			values[getFullIngressName(ingress.Ingress)] = getMappedVariableName(
-				ingress.Ingress.Namespace,
-				ingress.Ingress.Name,
-				"k8s_upstream_"+variable,
+			stream, exists, err := GetMapKeyAsBool(
+				ingress.Ingress.Annotations,
+				"nginx.org/stream",
+				ingress.Ingress,
 			)
+			if exists {
+				if err != nil {
+					glog.Error(err)
+					continue
+				}
+			}
+
+			if !stream {
+				values[getFullIngressName(ingress.Ingress)] = getMappedVariableName(
+					ingress.Ingress.Namespace,
+					ingress.Ingress.Name,
+					"k8s_upstream_"+variable,
+				)
+			}
 		}
 
 		maps = append(
