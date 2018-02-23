@@ -206,6 +206,7 @@ func (cnf *Configurator) generateNginxCfgHTTP(ingEx *IngressEx, ingCfg Config, p
 			ServerSnippets:        ingCfg.ServerSnippets,
 			Ports:                 ingCfg.Ports,
 			SSLPorts:              ingCfg.SSLPorts,
+			Address:               ingCfg.Address,
 		}
 
 		if pemFile, ok := pems[serverName]; ok {
@@ -293,6 +294,7 @@ func (cnf *Configurator) generateNginxCfgStream(ingEx *IngressEx, ingCfg Config)
 			ServerSnippets:      ingCfg.ServerSnippets,
 			ProxyBufferSize:     ingCfg.ProxyBufferSize,
 			ProxyConnectTimeout: ingCfg.ProxyConnectTimeout,
+			Address:             ingCfg.Address,
 		}
 	}
 
@@ -395,15 +397,13 @@ func (cnf *Configurator) createConfig(ingEx *IngressEx) Config {
 		if err != nil {
 			glog.Errorf("unable to list interface addresses: %s", err)
 		} else {
-			ip, _, err := net.ParseCIDR(listenAddress)
-			if err != nil {
-				glog.Errorf("unable to parse listen address: %s", err)
-			} else {
-				for _, addr := range addrs {
-					if addr.String() == ip.String() {
-						ingCfg.Address = ip.String()
-						ingCfg.Enabled = true
-					}
+			listenIP := net.ParseIP(listenAddress)
+			for _, addr := range addrs {
+				hostIP, _, _ := net.ParseCIDR(addr.String())
+
+				if hostIP.String() == listenIP.String() {
+					ingCfg.Address = listenIP.String()
+					ingCfg.Enabled = true
 				}
 			}
 		}

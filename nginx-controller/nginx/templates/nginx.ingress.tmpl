@@ -115,9 +115,11 @@ upstream {{.Upstream.Name}} {
 	server {{$server.Address}}:{{$server.Port}};{{end}}
 }
 
+{{ $server := .Server }}
+
 server {
 	{{range $port := .Server.Ports}}
-	listen {{$port}};
+	listen {{if $server.Address}}{{$server.Address}}:{{end}}{{$port}};
 	{{- end}}
 	{{- if .Server.ServerSnippets}}
 	{{range $value := .Server.ServerSnippets}}
