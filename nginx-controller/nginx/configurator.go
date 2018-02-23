@@ -3,6 +3,7 @@ package nginx
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"regexp"
 	"strconv"
@@ -65,10 +66,12 @@ func (cnf *Configurator) AddOrUpdateIngress(ingEx *IngressEx) error {
 func (cnf *Configurator) addOrUpdateIngress(ingEx *IngressEx) {
 	pems, jwtKeyFileName := cnf.updateSecrets(ingEx)
 	nginxCfg := cnf.generateNginxCfg(ingEx, pems, jwtKeyFileName)
-	name := objectMetaToFileName(&ingEx.Ingress.ObjectMeta)
-	cnf.nginx.AddOrUpdateIngress(name, nginxCfg)
+	if nginxCfg != nil {
+		name := objectMetaToFileName(&ingEx.Ingress.ObjectMeta)
+		cnf.nginx.AddOrUpdateIngress(name, nginxCfg)
 
-	cnf.ingresses[getFullIngressName(ingEx.Ingress)] = ingEx
+		cnf.ingresses[getFullIngressName(ingEx.Ingress)] = ingEx
+	}
 }
 
 func (cnf *Configurator) updateMaps() {
@@ -140,11 +143,15 @@ func (cnf *Configurator) updateSecrets(ingEx *IngressEx) (map[string]string, str
 func (cnf *Configurator) generateNginxCfg(ingEx *IngressEx, pems map[string]string, jwtKeyFileName string) IngressNginxConfig {
 	ingCfg := cnf.createConfig(ingEx)
 
-	if ingCfg.Stream {
-		return cnf.generateNginxCfgStream(ingEx, ingCfg)
-	} else {
-		return cnf.generateNginxCfgHTTP(ingEx, ingCfg, pems, jwtKeyFileName)
+	if ingCfg.Enabled {
+		if ingCfg.Stream {
+			return cnf.generateNginxCfgStream(ingEx, ingCfg)
+		} else {
+			return cnf.generateNginxCfgHTTP(ingEx, ingCfg, pems, jwtKeyFileName)
+		}
 	}
+
+	return nil
 }
 
 func (cnf *Configurator) generateNginxCfgHTTP(ingEx *IngressEx, ingCfg Config, pems map[string]string, jwtKeyFileName string) IngressNginxConfigHTTP {
@@ -378,6 +385,28 @@ func (cnf *Configurator) createConfig(ingEx *IngressEx) Config {
 	ports, sslPorts := getServicesPorts(ingEx)
 	if len(ports) > 0 {
 		ingCfg.Ports = ports
+	}
+
+	ingCfg.Enabled = true
+	if listenAddress, exists := ingEx.Ingress.Annotations["nginx.org/listen-address"]; exists {
+		ingCfg.Enabled = false
+
+		addrs, err := net.InterfaceAddrs()
+		if err != nil {
+			glog.Errorf("unable to list interface addresses: %s", err)
+		} else {
+			ip, _, err := net.ParseCIDR(listenAddress)
+			if err != nil {
+				glog.Errorf("unable to parse listen address: %s", err)
+			} else {
+				for _, addr := range addrs {
+					if addr.String() == ip.String() {
+						ingCfg.Address = ip.String()
+						ingCfg.Enabled = true
+					}
+				}
+			}
+		}
 	}
 
 	if !stream {

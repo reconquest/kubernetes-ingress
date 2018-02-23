@@ -50,6 +50,9 @@ type Config struct {
 	SSLPorts []int
 
 	Stream bool
+
+	Address string
+	Enabled bool
 }
 
 // NewDefaultConfig creates a Config with default values

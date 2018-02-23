@@ -129,6 +129,8 @@ type ServerHTTP struct {
 
 	Ports    []int
 	SSLPorts []int
+
+	Address string
 }
 
 func (http ServerHTTP) Type() string {
@@ -137,6 +139,7 @@ func (http ServerHTTP) Type() string {
 
 // Server describes an Stream NGINX server
 type ServerStream struct {
+	Address             string
 	Ports               []int
 	ServerSnippets      []string
 	ProxyConnectTimeout string
