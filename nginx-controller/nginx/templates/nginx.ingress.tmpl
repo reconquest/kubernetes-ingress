@@ -23,11 +23,11 @@ server {
 	set "$k8s_ingress" "{{$cfg.IngressName}}";
 
 	{{range $port := $server.Ports}}
-	listen {{$port}}{{if $server.ProxyProtocol}} proxy_protocol{{end}};
+	listen {{if $server.Address}}{{$server.Address}}:{{end}}{{$port}}{{if $server.ProxyProtocol}} proxy_protocol{{end}};
 	{{- end}}
 	{{if $server.SSL}}
 	{{- range $port := $server.SSLPorts}}
-	listen {{$port}} ssl{{if $server.HTTP2}} http2{{end}}{{if $server.ProxyProtocol}} proxy_protocol{{end}};
+	listen {{if $server.Address}}{{$server.Address}}:{{end}}{{$port}} ssl{{if $server.HTTP2}} http2{{end}}{{if $server.ProxyProtocol}} proxy_protocol{{end}};
 	{{- end}}
 	ssl_certificate {{$server.SSLCertificate}};
 	ssl_certificate_key {{$server.SSLCertificateKey}};
@@ -115,9 +115,11 @@ upstream {{.Upstream.Name}} {
 	server {{$server.Address}}:{{$server.Port}};{{end}}
 }
 
+{{ $server := .Server }}
+
 server {
 	{{range $port := .Server.Ports}}
-	listen {{$port}};
+	listen {{if $server.Address}}{{$server.Address}}:{{end}}{{$port}};
 	{{- end}}
 	{{- if .Server.ServerSnippets}}
 	{{range $value := .Server.ServerSnippets}}
