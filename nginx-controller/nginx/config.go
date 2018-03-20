@@ -27,6 +27,7 @@ type Config struct {
 	HSTSIncludeSubdomains         bool
 	LBMethod                      string
 	MainWorkerProcesses           string
+	MainWorkerConnections         int64
 	MainWorkerCPUAffinity         string
 	Keepalive                     int64
 
@@ -66,6 +67,7 @@ func NewDefaultConfig() *Config {
 		MainServerNamesHashMaxSize: "512",
 		ProxyBuffering:             true,
 		MainWorkerProcesses:        "auto",
+		MainWorkerConnections:      2048,
 		HSTSMaxAge:                 2592000,
 		Ports:                      []int{80},
 		SSLPorts:                   []int{443},

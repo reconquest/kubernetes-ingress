@@ -579,6 +579,13 @@ func (lbc *LoadBalancerController) syncCfgm(task Task) {
 				cfg.MainWorkerProcesses = cfgm.Data["worker-processes"]
 			}
 		}
+		if workerConnections, exists, err := nginx.GetMapKeyAsInt(cfgm.Data, "worker-connections", cfgm); exists {
+			if err != nil {
+				glog.Errorf("Configmap %s/%s: Invalid value for worker-connections key: must be an integer, got %q", cfgm.GetNamespace(), cfgm.GetName(), cfgm.Data["worker-connections"])
+			} else {
+				cfg.MainWorkerConnections = workerConnections
+			}
+		}
 		if workerCPUAffinity, exists := cfgm.Data["worker-cpu-affinity"]; exists {
 			cfg.MainWorkerCPUAffinity = workerCPUAffinity
 		}

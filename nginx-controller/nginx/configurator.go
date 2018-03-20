@@ -944,6 +944,7 @@ func (cnf *Configurator) UpdateConfig(config *Config, ingExes []*IngressEx) erro
 		ServerTokens:      config.ServerTokens,
 		ProxyProtocol:     config.ProxyProtocol,
 		WorkerProcesses:   config.MainWorkerProcesses,
+		WorkerConnections: config.MainWorkerConnections,
 		WorkerCPUAffinity: config.MainWorkerCPUAffinity,
 	}
 

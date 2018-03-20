@@ -183,6 +183,7 @@ type NginxMainConfig struct {
 	ServerTokens           string
 	ProxyProtocol          bool
 	WorkerProcesses        string
+	WorkerConnections      int64
 	WorkerCPUAffinity      string
 }
 
@@ -230,6 +231,7 @@ func NewNginxController(
 		ServerNamesHashMaxSize: NewDefaultConfig().MainServerNamesHashMaxSize,
 		ServerTokens:           NewDefaultConfig().ServerTokens,
 		WorkerProcesses:        NewDefaultConfig().MainWorkerProcesses,
+		WorkerConnections:      NewDefaultConfig().MainWorkerConnections,
 	}
 	ngxc.UpdateMainConfigFile(cfg)
 	ngxc.UpdateMapsConfigFile([]Map{})
