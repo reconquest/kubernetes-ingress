@@ -294,6 +294,7 @@ func (cnf *Configurator) generateNginxCfgStream(ingEx *IngressEx, ingCfg Config)
 			ServerSnippets:      ingCfg.ServerSnippets,
 			ProxyBufferSize:     ingCfg.ProxyBufferSize,
 			ProxyConnectTimeout: ingCfg.ProxyConnectTimeout,
+			ProxyTimeout:        ingCfg.ProxyTimeout,
 			Address:             ingCfg.Address,
 		}
 	}
@@ -686,6 +687,7 @@ func createLocation(path string, upstream UpstreamHTTP, cfg *Config, websocket b
 	loc := Location{
 		Path:                 path,
 		Upstream:             upstream,
+		ProxyTimeout:         cfg.ProxyTimeout,
 		ProxyConnectTimeout:  cfg.ProxyConnectTimeout,
 		ProxyReadTimeout:     cfg.ProxyReadTimeout,
 		ClientMaxBodySize:    cfg.ClientMaxBodySize,

@@ -7,6 +7,7 @@ type Config struct {
 	ServerTokens                  string
 	ProxyConnectTimeout           string
 	ProxyReadTimeout              string
+	ProxyTimeout                  string
 	ClientMaxBodySize             string
 	HTTP2                         bool
 	RedirectToHTTPS               bool
@@ -62,6 +63,7 @@ func NewDefaultConfig() *Config {
 		ServerTokens:               "on",
 		ProxyConnectTimeout:        "60s",
 		ProxyReadTimeout:           "60s",
+		ProxyTimeout:               "10m",
 		ClientMaxBodySize:          "1m",
 		SSLRedirect:                true,
 		MainServerNamesHashMaxSize: "512",

@@ -126,12 +126,15 @@ server {
 	{{$value}}{{end}}
 	{{- end}}
 
-    {{- if .Server.ProxyBufferSize}}
+    {{- if .Server.ProxyConnectTimeout}}
     proxy_connect_timeout {{.Server.ProxyConnectTimeout}};
     {{- end }}
     {{- if .Server.ProxyBufferSize}}
     proxy_buffer_size {{.Server.ProxyBufferSize}};
     {{- end}}
+    {{- if .Server.ProxyTimeout}}
+    proxy_timeout {{.Server.ProxyTimeout}};
+    {{- end }}
 
     proxy_pass {{.Upstream.Name}};
 }

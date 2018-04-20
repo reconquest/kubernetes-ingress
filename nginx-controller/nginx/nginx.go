@@ -143,6 +143,7 @@ type ServerStream struct {
 	Ports               []int
 	ServerSnippets      []string
 	ProxyConnectTimeout string
+	ProxyTimeout        string
 	ProxyBufferSize     string
 }
 
@@ -155,6 +156,7 @@ type Location struct {
 	LocationSnippets     []string
 	Path                 string
 	Upstream             UpstreamHTTP
+	ProxyTimeout         string
 	ProxyConnectTimeout  string
 	ProxyReadTimeout     string
 	ClientMaxBodySize    string
