@@ -377,6 +377,10 @@ func (cnf *Configurator) createConfig(ingEx *IngressEx) Config {
 		}
 	}
 
+	if proxyTimeout, exists := ingEx.Ingress.Annotations["nginx.org/proxy-timeout"]; exists {
+		ingCfg.ProxyTimeout = proxyTimeout
+	}
+
 	if proxyConnectTimeout, exists := ingEx.Ingress.Annotations["nginx.org/proxy-connect-timeout"]; exists {
 		ingCfg.ProxyConnectTimeout = proxyConnectTimeout
 	}
